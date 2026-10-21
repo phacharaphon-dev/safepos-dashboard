@@ -1,42 +1,108 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { ref, onValue } from 'firebase/database';
+import { rtdb } from '../firebase';
+
+const USER_ID = 'user123';
+const DEVICE_ID = 'CAM-01-OFFICE';
+
+function formatMinutes(totalMin) {
+  const m = Number(totalMin) || 0;
+  const hours = Math.floor(m / 60);
+  const mins = m % 60;
+  return `${hours}h ${mins}m`;
+}
 
 export default function Dashboard() {
   const [score, setScore] = useState(100);
-  const [isSlouching, setIsSlouching] = useState(false);
   const [showDangerModal, setShowDangerModal] = useState(false);
   const [hasAlerted, setHasAlerted] = useState(false);
   const riskThreshold = 50;
 
+  // State สำหรับเก็บข้อมูลจาก Firebase
+  const [deviceStatus, setDeviceStatus] = useState('Online');
+  const [postureStateFromDB, setPostureStateFromDB] = useState('Normal');
+  const [summary, setSummary] = useState({
+    total_active_time_min: 270,
+    total_bad_posture_min: 70,
+    alert_count: 12,
+  });
+  const [isPopupEnabled, setIsPopupEnabled] = useState(true);
+
+  // เชื่อมต่อ Firebase Realtime Database
   useEffect(() => {
-    const interval = setInterval(() => {
-      setScore((prevScore) => {
-        if (isSlouching) {
-          return prevScore > 0 ? prevScore - 2 : 0;
-        } else {
-          return prevScore < 100 ? prevScore + 2 : 100;
+    // 1. ดึงสถานะกล้องและท่านั่งสดจาก Devices/CAM-01-OFFICE
+    const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
+    const unsubDevice = onValue(deviceRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.val();
+        setDeviceStatus(data.status || 'Online');
+        const currentStatus = data.current_posture_status || 'Normal';
+        setPostureStateFromDB(currentStatus);
+
+        // แปลงสถานะจาก Firebase เป็นคะแนนแบบเรียลไทม์
+        if (currentStatus === 'Normal') {
+          setScore(100);
+        } else if (currentStatus === 'Warning') {
+          setScore(60);
+        } else if (currentStatus === 'Critical') {
+          setScore(30);
         }
-      });
-    }, 180);
+      }
+    });
 
-    return () => clearInterval(interval);
-  }, [isSlouching]);
+    // 2. ดึงข้อมูลสรุปรายวันจาก Daily_Summaries
+    const summariesRef = ref(rtdb, 'Daily_Summaries');
+    const unsubSummaries = onValue(summariesRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const allSummaries = snapshot.val();
+        const userKeys = Object.keys(allSummaries)
+          .filter((k) => k.startsWith(`${USER_ID}_`))
+          .sort();
+        if (userKeys.length > 0) {
+          const latestKey = userKeys[userKeys.length - 1];
+          setSummary(allSummaries[latestKey]);
+        }
+      }
+    });
 
+    // 3. ดึงการตั้งค่าเปิด/ปิด Pop-up
+    const settingsRef = ref(rtdb, `Users/${USER_ID}/settings`);
+    const unsubSettings = onValue(settingsRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const s = snapshot.val();
+        if (typeof s.is_popup_enabled === 'boolean') {
+          setIsPopupEnabled(s.is_popup_enabled);
+        }
+      }
+    });
+
+    return () => {
+      unsubDevice();
+      unsubSummaries();
+      unsubSettings();
+    };
+  }, []);
+
+  // ควบคุมการแสดงผล Pop-up แจ้งเตือน
   useEffect(() => {
     if (score <= riskThreshold && !hasAlerted) {
-      setShowDangerModal(true);
+      if (isPopupEnabled) {
+        setShowDangerModal(true);
+      }
       setHasAlerted(true);
     } else if (score > riskThreshold && hasAlerted) {
       setHasAlerted(false);
     }
-  }, [score, hasAlerted]);
+  }, [score, hasAlerted, isPopupEnabled]);
 
-  const isNormal = score > 70;
-  const isWarning = score <= 70 && score > 50;
+  const isNormal = postureStateFromDB === 'Normal';
+  const isWarning = postureStateFromDB === 'Warning';
+  const isCritical = postureStateFromDB === 'Critical';
 
   const statusColor = isNormal ? '#a855f7' : isWarning ? '#f59e0b' : '#f43f5e';
   const statusGlow = isNormal ? 'rgba(168,85,247,0.6)' : isWarning ? 'rgba(245,158,11,0.6)' : 'rgba(244,63,94,0.6)';
-  const statusText = isNormal ? 'Normal' : isWarning ? 'Warning' : 'Danger';
+  const statusText = isNormal ? 'Normal' : isWarning ? 'Warning' : 'Critical';
   const statusThaiTitle = isNormal
     ? 'ท่าทางของคุณอยู่ในเกณฑ์ที่ดี'
     : isWarning
@@ -76,7 +142,7 @@ export default function Dashboard() {
         </defs>
       </svg>
 
-      {/* POP-UP แจ้งเตือนอันตราย (แสดงเมื่อถึง 50%) */}
+      {/* POP-UP แจ้งเตือนอันตราย */}
       {showDangerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="relative w-full max-w-md rounded-[28px] bg-[#120d2b] border-2 border-rose-500 p-7 text-center shadow-[0_0_70px_rgba(244,63,94,0.6)]">
@@ -89,22 +155,21 @@ export default function Dashboard() {
               แจ้งเตือนท่านั่งอันตราย!
             </h3>
             <p className="mt-2 text-sm text-slate-300 leading-relaxed">
-              คะแนนท่านั่งของคุณลดลงถึงเกณฑ์ความเสี่ยง (<span className="text-rose-400 font-bold">{score}%</span>) กรุณาปรับท่านั่งให้หลังตรงเพื่อป้องกันออฟฟิศซินโดรมครับ
+              สถานะท่านั่งของคุณอยู่ในระดับความเสี่ยง (<span className="text-rose-400 font-bold">{score}% Critical</span>) กรุณาปรับท่านั่งให้หลังตรงเพื่อป้องกันออฟฟิศซินโดรมครับ
             </p>
             <button
               onClick={() => {
-                setIsSlouching(false);
                 setShowDangerModal(false);
               }}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-6 py-3 font-bold text-white shadow-[0_0_25px_rgba(244,63,94,0.5)] hover:from-rose-600 hover:to-pink-700 transition active:scale-95"
             >
-              รับทราบ และปรับท่านั่งทันที
+              ปิดหน้าต่างแจ้งเตือน
             </button>
           </div>
         </div>
       )}
 
-      {/* TOP BAR (ลบ TELEMETRY LIVE ออกแล้ว) */}
+      {/* TOP BAR */}
       <header className="relative z-20 w-full px-8 py-4 flex items-center justify-between border-b border-purple-500/20 bg-[#070514]/70 backdrop-blur-md">
         <div className="flex items-center space-x-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-700 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.7)] border border-purple-300/40">
@@ -124,7 +189,7 @@ export default function Dashboard() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
             <span className="absolute -top-1 -right-1 px-1.5 py-0.2 bg-fuchsia-600 text-[10px] font-bold rounded-full border border-[#070514] shadow-[0_0_8px_#d946ef]">
-              0
+              {summary.alert_count ?? 0}
             </span>
           </button>
 
@@ -140,20 +205,14 @@ export default function Dashboard() {
         {/* LEFT SIDEBAR */}
         <aside className="w-60 flex flex-col justify-between py-5 px-3.5 rounded-[26px] bg-[#0d0920]/90 border border-purple-500/25 shadow-[0_0_35px_rgba(0,0,0,0.8)] backdrop-blur-xl shrink-0">
           <nav className="flex flex-col space-y-2.5 w-full">
-            <Link
-              to="/"
-              className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-purple-600/35 to-indigo-600/20 text-white font-semibold border border-purple-400/60 shadow-[0_0_20px_rgba(168,85,247,0.4)] transition"
-            >
+            <Link to="/" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl bg-gradient-to-r from-purple-600/35 to-indigo-600/20 text-white font-semibold border border-purple-400/60 shadow-[0_0_20px_rgba(168,85,247,0.4)] transition">
               <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
               </svg>
               <span className="text-sm">Dashboard</span>
             </Link>
 
-            <Link
-              to="/posture"
-              className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition"
-            >
+            <Link to="/posture" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition">
               <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <rect x="7" y="7" width="10" height="10" rx="2" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 3v4m6-4v4M9 17v4m6-4v4M3 9h4m-4 6h4m10-6h4m-4 6h4" />
@@ -161,20 +220,14 @@ export default function Dashboard() {
               <span className="text-sm font-medium">Live AI Analysis</span>
             </Link>
 
-            <Link
-              to="/analytics"
-              className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition"
-            >
+            <Link to="/analytics" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition">
               <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
               <span className="text-sm font-medium">Reports</span>
             </Link>
 
-            <Link
-              to="/settings"
-              className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition"
-            >
+            <Link to="/settings" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition">
               <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -182,10 +235,7 @@ export default function Dashboard() {
               <span className="text-sm font-medium">Settings</span>
             </Link>
 
-            <Link
-              to="/profile"
-              className="flex items-center justify-between px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition"
-            >
+            <Link to="/profile" className="flex items-center justify-between px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-purple-500/10 transition">
               <div className="flex items-center space-x-3.5">
                 <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -196,10 +246,7 @@ export default function Dashboard() {
             </Link>
           </nav>
 
-          <a
-            href="#logout"
-            className="flex items-center space-x-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition mt-auto"
-          >
+          <a href="#logout" className="flex items-center space-x-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition mt-auto">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
@@ -238,7 +285,7 @@ export default function Dashboard() {
                       <div className="flex items-center space-x-1.5 mt-0.5">
                         <span className="w-2 h-2 rounded-full bg-[#00f5a0] animate-pulse shadow-[0_0_8px_#00f5a0]" />
                         <span className="text-[11px] font-bold tracking-wider text-[#00f5a0] uppercase">
-                          TRACKING ACTIVE
+                          {deviceStatus === 'Online' ? 'TRACKING ACTIVE' : 'CAMERA OFFLINE'}
                         </span>
                       </div>
                     </div>
@@ -251,62 +298,24 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                {/* Camera Body (ลบป้ายกำลังวิเคราะห์ท่าทางด้านล่างซ้ายออกแล้ว) */}
-                <div className="relative flex-1 w-full rounded-[22px] overflow-hidden bg-[#080614] border border-purple-500/20 flex items-center justify-center min-h-[360px]">
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(126,34,206,0.22)_0%,rgba(8,6,20,0.95)_75%)]" />
+                <div className="relative flex-1 w-full rounded-[22px] overflow-hidden bg-[#080614] border border-purple-500/20 flex items-center justify-center min-h-[360px] p-4">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(126,34,206,0.22)_0%,rgba(8,6,20,0.95)_75%)] pointer-events-none" />
 
-                  <div className="relative w-56 h-72 flex items-center justify-center">
-                    <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-xl shadow-[-2px_-2px_10px_rgba(168,85,247,0.6)]" />
-                    <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-xl shadow-[2px_-2px_10px_rgba(168,85,247,0.6)]" />
-                    <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-xl shadow-[-2px_2px_10px_rgba(168,85,247,0.6)]" />
-                    <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-xl shadow-[2px_2px_10px_rgba(168,85,247,0.6)]" />
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-xl shadow-[-2px_-2px_10px_rgba(168,85,247,0.6)] z-10" />
+                    <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-xl shadow-[2px_-2px_10px_rgba(168,85,247,0.6)] z-10" />
+                    <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-xl shadow-[-2px_2px_10px_rgba(168,85,247,0.6)] z-10" />
+                    <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-xl shadow-[2px_2px_10px_rgba(168,85,247,0.6)] z-10" />
 
-                    <svg className="w-48 h-64 overflow-visible" viewBox="0 0 200 260" fill="none">
-                      <path
-                        d="M115 35 C130 35 138 48 135 62 C132 75 122 82 115 88 C130 98 145 115 145 145 L145 230 L95 230 L90 150 C90 120 95 100 102 88 C95 80 92 65 95 50 C98 40 105 35 115 35 Z"
-                        fill="rgba(148, 163, 184, 0.12)"
-                        stroke="rgba(168, 85, 247, 0.35)"
-                        strokeWidth="1.5"
-                      />
-                      <path
-                        d={isSlouching ? "M 112 75 Q 70 135 100 215" : "M 110 75 Q 92 140 102 215"}
-                        stroke={statusColor}
-                        strokeWidth="4"
-                        strokeLinecap="round"
-                        filter={`drop-shadow(0 0 10px ${statusColor})`}
-                        className="transition-all duration-500"
-                      />
-                      {(isSlouching
-                        ? [
-                            { cx: 112, cy: 75 },
-                            { cx: 96, cy: 102 },
-                            { cx: 88, cy: 132 },
-                            { cx: 89, cy: 162 },
-                            { cx: 94, cy: 190 },
-                            { cx: 100, cy: 215 },
-                          ]
-                        : [
-                            { cx: 110, cy: 75 },
-                            { cx: 103, cy: 103 },
-                            { cx: 99, cy: 132 },
-                            { cx: 98, cy: 160 },
-                            { cx: 100, cy: 188 },
-                            { cx: 102, cy: 215 },
-                          ]
-                      ).map((pt, i) => (
-                        <circle
-                          key={i}
-                          cx={pt.cx}
-                          cy={pt.cy}
-                          r="4.5"
-                          fill="#ffffff"
-                          stroke={statusColor}
-                          strokeWidth="3"
-                          filter={`drop-shadow(0 0 8px ${statusColor})`}
-                          className="transition-all duration-500"
-                        />
-                      ))}
-                    </svg>
+                    <img 
+                      src="http://127.0.0.1:5000/video_feed" 
+                      alt="Live Posture AI Feed" 
+                      className="w-full h-full max-h-[380px] object-cover rounded-[14px] relative z-0 opacity-90 border border-purple-500/30 shadow-[0_0_20px_rgba(0,0,0,0.5)]"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = "https://via.placeholder.com/640x480/080614/a855f7?text=CAMERA+OFFLINE";
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -422,28 +431,16 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsSlouching(!isSlouching)}
-                    title="คลิกเพื่อทดสอบจำลองการนั่งผิดท่า"
-                    className={`w-full py-2 px-4 rounded-full font-semibold text-xs flex items-center justify-center space-x-2 transition-all active:scale-95 ${
-                      isNormal
-                        ? 'bg-[#06332e] text-[#00f5a0] border border-[#00f5a0]/40 shadow-[0_0_20px_rgba(0,245,160,0.2)] hover:bg-[#08423b]'
-                        : 'bg-rose-950/80 text-rose-300 border border-rose-500/50 shadow-[0_0_20px_rgba(244,63,94,0.3)]'
-                    }`}
-                  >
-                    <span>⭐</span>
-                    <span>
-                      {isSlouching
-                        ? 'กำลังจำลองนั่งผิดท่า... (คลิกเพื่อกลับมานั่งตรง)'
-                        : 'ยอดเยี่ยม! ท่าทางสมบูรณ์แบบ (คลิกเพื่อจำลอง)'}
-                    </span>
-                  </button>
+                  {/* ลบปุ่มจำลองออกแล้ว เพื่อให้ใช้ค่าจาก Firebase เท่านั้น */}
+                  <div className="w-full py-2 px-4 rounded-full font-semibold text-xs flex items-center justify-center space-x-2 bg-purple-500/10 border border-purple-400/30 text-purple-300">
+                    <span>📡</span>
+                    <span>ซิงค์ข้อมูลเรียลไทม์จากกล้อง AI</span>
+                  </div>
                 </div>
 
               </div>
 
-              {/* COLUMN 3: DAILY SUMMARY (ขยายฟอนต์ให้ใหญ่เต็มตา + ลบเส้นกราฟด้านขวาออกแล้ว) */}
+              {/* COLUMN 3: DAILY SUMMARY */}
               <div className="rounded-[26px] bg-[#100b26]/90 border border-purple-500/35 p-6 flex flex-col justify-between shadow-[0_0_30px_rgba(0,0,0,0.6)]">
                 
                 <div className="flex items-center space-x-2.5 mb-4">
@@ -476,7 +473,7 @@ export default function Dashboard() {
                           Total Active Time
                         </span>
                         <p className="text-4xl sm:text-5xl font-black text-white mt-1 tracking-tight">
-                          4h 43m
+                          {formatMinutes(summary.total_active_time_min)}
                         </p>
                         <p className="text-sm font-bold text-[#00f5a0] mt-1.5 flex items-center">
                           <span>↑ 12% from yesterday</span>
@@ -498,7 +495,7 @@ export default function Dashboard() {
                           Bad Posture Accumulation
                         </span>
                         <p className="text-4xl sm:text-5xl font-black text-white mt-1 tracking-tight">
-                          1h 10m
+                          {formatMinutes(summary.total_bad_posture_min)}
                         </p>
                         <p className="text-sm font-bold text-pink-500 mt-1.5 flex items-center">
                           <span>↓ 35% Needs attention</span>
@@ -520,7 +517,7 @@ export default function Dashboard() {
                           Alerts Triggered
                         </span>
                         <p className="text-4xl sm:text-5xl font-black text-white mt-1 tracking-tight">
-                          12 <span className="text-2xl font-bold text-slate-300">times</span>
+                          {summary.alert_count ?? 0} <span className="text-2xl font-bold text-slate-300">times</span>
                         </p>
                       </div>
                     </div>

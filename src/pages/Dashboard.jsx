@@ -17,46 +17,47 @@ export default function Dashboard() {
   const [score, setScore] = useState(100);
   const [showDangerModal, setShowDangerModal] = useState(false);
   const [hasAlerted, setHasAlerted] = useState(false);
+  
+  // 🔴 เพิ่ม State สำหรับจัดการ Cooldown ของป๊อปอัป
+  const [isCooldown, setIsCooldown] = useState(false);
+  const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0); 
+  
   const riskThreshold = 50;
 
   // State สำหรับเก็บข้อมูลจาก Firebase
   const [deviceStatus, setDeviceStatus] = useState('Online');
   const [postureStateFromDB, setPostureStateFromDB] = useState('Normal');
   const [summary, setSummary] = useState({
-    total_active_time_min: 270,
-    total_bad_posture_min: 70,
-    alert_count: 12,
+    total_active_time_min: 0,
+    total_bad_posture_min: 0,
+    alert_count: 0,
   });
   const [isPopupEnabled, setIsPopupEnabled] = useState(true);
 
   // เชื่อมต่อ Firebase Realtime Database
   useEffect(() => {
-    // 1. ดึงสถานะกล้องและท่านั่งสดจาก Devices/CAM-01-OFFICE
     const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
     const unsubDevice = onValue(deviceRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.val();
         setDeviceStatus(data.status || 'Online');
         
-        // 🔴 แก้ไข: ดึงข้อมูลแบบครอบจักรวาล เช็คทั้ง current_posture_status และ current_posture
         const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
         const normalizedStatus = String(rawStatus).trim().toLowerCase();
 
-        // เช็คเงื่อนไขและตั้งค่าคะแนน (ปรับ Critical ให้เหลือ 0% แล้วครับ)
         if (normalizedStatus === 'critical') {
           setPostureStateFromDB('Critical');
-          setScore(0); // ร่วงเหลือ 0% เวลาก้มผิดท่าสุดๆ
+          setScore(0);
         } else if (normalizedStatus === 'warning') {
           setPostureStateFromDB('Warning');
-          setScore(60); // 60% เวลาเริ่มค่อม
+          setScore(60);
         } else {
           setPostureStateFromDB('Normal');
-          setScore(100); // 100% เวลานั่งตรง
+          setScore(100);
         }
       }
     });
 
-    // 2. ดึงข้อมูลสรุปรายวันจาก Daily_Summaries
     const summariesRef = ref(rtdb, 'Daily_Summaries');
     const unsubSummaries = onValue(summariesRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -71,7 +72,6 @@ export default function Dashboard() {
       }
     });
 
-    // 3. ดึงการตั้งค่าเปิด/ปิด Pop-up
     const settingsRef = ref(rtdb, `Users/${USER_ID}/settings`);
     const unsubSettings = onValue(settingsRef, (snapshot) => {
       if (snapshot.exists()) {
@@ -89,17 +89,41 @@ export default function Dashboard() {
     };
   }, []);
 
-  // ควบคุมการแสดงผล Pop-up แจ้งเตือน
+  // 🔴 อัปเกรดระบบแสดงผล Pop-up (เพิ่ม หน่วงเวลา และ คูลดาวน์)
   useEffect(() => {
-    if (score <= riskThreshold && !hasAlerted) {
+    let graceTimer;
+
+    // ถ้าคะแนนวิกฤต และไม่ได้แจ้งเตือนอยู่ และไม่ได้ติดคูลดาวน์
+    if (score <= riskThreshold && !hasAlerted && !isCooldown) {
       if (isPopupEnabled) {
-        setShowDangerModal(true);
+        // ให้เวลา 3 วินาที (Grace Period) เผื่อกำลังนั่งหรือก้มหยิบของ
+        graceTimer = setTimeout(() => {
+          setShowDangerModal(true);
+          setHasAlerted(true);
+        }, 3000); 
       }
-      setHasAlerted(true);
-    } else if (score > riskThreshold && hasAlerted) {
+    } else if (score > riskThreshold) {
+      // ถ้านั่งตรงก่อนหมดเวลา 3 วินาที ให้ยกเลิกป๊อปอัป
       setHasAlerted(false);
+      clearTimeout(graceTimer);
     }
-  }, [score, hasAlerted, isPopupEnabled]);
+
+    return () => clearTimeout(graceTimer);
+  }, [score, hasAlerted, isPopupEnabled, isCooldown]);
+
+  // ฟังก์ชันอัปเดตเวลานับถอยหลัง Cooldown (ถ้าจำเป็นต้องใช้โชว์)
+  useEffect(() => {
+    let countdownInterval;
+    if (isCooldown && cooldownTimeLeft > 0) {
+      countdownInterval = setInterval(() => {
+        setCooldownTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (cooldownTimeLeft === 0) {
+      setIsCooldown(false);
+      clearInterval(countdownInterval);
+    }
+    return () => clearInterval(countdownInterval);
+  }, [isCooldown, cooldownTimeLeft]);
 
   const isNormal = postureStateFromDB === 'Normal';
   const isWarning = postureStateFromDB === 'Warning';
@@ -125,7 +149,6 @@ export default function Dashboard() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#070514] font-sans text-white selection:bg-purple-500 selection:text-white">
-      {/* Ambient Background Glows */}
       <div className="pointer-events-none absolute top-0 left-1/4 w-[600px] h-[300px] bg-purple-700/20 blur-[130px] rounded-full" />
       <div className="pointer-events-none absolute bottom-0 right-1/4 w-[500px] h-[300px] bg-indigo-700/15 blur-[120px] rounded-full" />
       
@@ -165,6 +188,9 @@ export default function Dashboard() {
             <button
               onClick={() => {
                 setShowDangerModal(false);
+                // 🔴 เมื่อกดปิด ให้เริ่มนับ Cooldown 60 วินาที (จะไม่เด้งกวนใจอีก)
+                setIsCooldown(true);
+                setCooldownTimeLeft(60); 
               }}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-6 py-3 font-bold text-white shadow-[0_0_25px_rgba(244,63,94,0.5)] hover:from-rose-600 hover:to-pink-700 transition active:scale-95"
             >
@@ -189,6 +215,17 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center space-x-4">
+          
+          {/* 🔴 เพิ่ม Badge แสดงสถานะ Cooldown (ซ่อนอยู่ถ้าไม่มีคูลดาวน์) */}
+          {isCooldown && (
+             <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse">
+               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+               </svg>
+               <span>Alert Snoozed ({cooldownTimeLeft}s)</span>
+             </div>
+          )}
+
           <button className="relative w-10 h-10 rounded-full bg-[#130f29] border border-purple-500/30 flex items-center justify-center text-slate-200 hover:text-white hover:border-purple-400 transition">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />

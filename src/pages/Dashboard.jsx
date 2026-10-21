@@ -38,17 +38,20 @@ export default function Dashboard() {
         const data = snapshot.val();
         setDeviceStatus(data.status || 'Online');
         
-        // ดึงจาก current_posture ให้ตรงกับหลังบ้าน
-        const currentStatus = data.current_posture || 'Normal';
-        setPostureStateFromDB(currentStatus);
+        // 🔴 แก้ไข: ดึงข้อมูลแบบครอบจักรวาล เช็คทั้ง current_posture_status และ current_posture
+        const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
+        const normalizedStatus = String(rawStatus).trim().toLowerCase();
 
-        // แปลงสถานะจาก Firebase เป็นคะแนนแบบเรียลไทม์
-        if (currentStatus === 'Normal') {
-          setScore(100);
-        } else if (currentStatus === 'Warning') {
-          setScore(60);
-        } else if (currentStatus === 'Critical') {
-          setScore(30);
+        // เช็คเงื่อนไขและตั้งค่าคะแนน (ปรับ Critical ให้เหลือ 0% แล้วครับ)
+        if (normalizedStatus === 'critical') {
+          setPostureStateFromDB('Critical');
+          setScore(0); // ร่วงเหลือ 0% เวลาก้มผิดท่าสุดๆ
+        } else if (normalizedStatus === 'warning') {
+          setPostureStateFromDB('Warning');
+          setScore(60); // 60% เวลาเริ่มค่อม
+        } else {
+          setPostureStateFromDB('Normal');
+          setScore(100); // 100% เวลานั่งตรง
         }
       }
     });
@@ -300,12 +303,10 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                {/* เปลี่ยน p-4 เป็น p-2 และให้ Container ข้างในรองรับภาพเต็มขอบ */}
                 <div className="relative flex-1 w-full rounded-[22px] overflow-hidden bg-[#080614] border border-purple-500/20 flex items-center justify-center min-h-[360px] p-2">
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(126,34,206,0.22)_0%,rgba(8,6,20,0.95)_75%)] pointer-events-none" />
 
                   <div className="relative w-full h-full flex items-center justify-center rounded-[16px] overflow-hidden">
-                    {/* ขอบมุมตกแต่ง ย้ายมาไว้ z-20 เพื่อให้ทับบนรูป */}
                     <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-[16px] shadow-[-2px_-2px_10px_rgba(168,85,247,0.6)] z-20" />
                     <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-[16px] shadow-[2px_-2px_10px_rgba(168,85,247,0.6)] z-20" />
                     <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-[16px] shadow-[-2px_2px_10px_rgba(168,85,247,0.6)] z-20" />
@@ -314,7 +315,6 @@ export default function Dashboard() {
                     <img 
                       src="http://127.0.0.1:5000/video_feed" 
                       alt="Live Posture AI Feed" 
-                      // เปลี่ยนเป็น absolute กางเต็มพื้นที่ ไม่จำกัดความสูง
                       className="absolute inset-0 w-full h-full object-cover z-10 opacity-90"
                       onError={(e) => {
                         e.target.onerror = null;

@@ -37,7 +37,9 @@ export default function Dashboard() {
       if (snapshot.exists()) {
         const data = snapshot.val();
         setDeviceStatus(data.status || 'Online');
-        const currentStatus = data.current_posture_status || 'Normal';
+        
+        // ดึงจาก current_posture ให้ตรงกับหลังบ้าน
+        const currentStatus = data.current_posture || 'Normal';
         setPostureStateFromDB(currentStatus);
 
         // แปลงสถานะจาก Firebase เป็นคะแนนแบบเรียลไทม์
@@ -298,22 +300,25 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <div className="relative flex-1 w-full rounded-[22px] overflow-hidden bg-[#080614] border border-purple-500/20 flex items-center justify-center min-h-[360px] p-4">
+                {/* เปลี่ยน p-4 เป็น p-2 และให้ Container ข้างในรองรับภาพเต็มขอบ */}
+                <div className="relative flex-1 w-full rounded-[22px] overflow-hidden bg-[#080614] border border-purple-500/20 flex items-center justify-center min-h-[360px] p-2">
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(126,34,206,0.22)_0%,rgba(8,6,20,0.95)_75%)] pointer-events-none" />
 
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-xl shadow-[-2px_-2px_10px_rgba(168,85,247,0.6)] z-10" />
-                    <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-xl shadow-[2px_-2px_10px_rgba(168,85,247,0.6)] z-10" />
-                    <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-xl shadow-[-2px_2px_10px_rgba(168,85,247,0.6)] z-10" />
-                    <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-xl shadow-[2px_2px_10px_rgba(168,85,247,0.6)] z-10" />
+                  <div className="relative w-full h-full flex items-center justify-center rounded-[16px] overflow-hidden">
+                    {/* ขอบมุมตกแต่ง ย้ายมาไว้ z-20 เพื่อให้ทับบนรูป */}
+                    <div className="absolute top-0 left-0 w-7 h-7 border-t-[3px] border-l-[3px] border-purple-400 rounded-tl-[16px] shadow-[-2px_-2px_10px_rgba(168,85,247,0.6)] z-20" />
+                    <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-purple-400 rounded-tr-[16px] shadow-[2px_-2px_10px_rgba(168,85,247,0.6)] z-20" />
+                    <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-purple-400 rounded-bl-[16px] shadow-[-2px_2px_10px_rgba(168,85,247,0.6)] z-20" />
+                    <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-purple-400 rounded-br-[16px] shadow-[2px_2px_10px_rgba(168,85,247,0.6)] z-20" />
 
                     <img 
                       src="http://127.0.0.1:5000/video_feed" 
                       alt="Live Posture AI Feed" 
-                      className="w-full h-full max-h-[380px] object-cover rounded-[14px] relative z-0 opacity-90 border border-purple-500/30 shadow-[0_0_20px_rgba(0,0,0,0.5)]"
+                      // เปลี่ยนเป็น absolute กางเต็มพื้นที่ ไม่จำกัดความสูง
+                      className="absolute inset-0 w-full h-full object-cover z-10 opacity-90"
                       onError={(e) => {
                         e.target.onerror = null;
-                        e.target.src = "https://via.placeholder.com/640x480/080614/a855f7?text=CAMERA+OFFLINE";
+                        e.target.src = "https://via.placeholder.com/800x600/080614/a855f7?text=CAMERA+OFFLINE";
                       }}
                     />
                   </div>
@@ -394,7 +399,7 @@ export default function Dashboard() {
                     </span>
                   </div>
 
-                  <div className="relative flex items-center justify-center my-1">
+                  <div className="relative flex items-center justify-center my-auto">
                     <svg className="w-40 h-40 -rotate-90 transform" viewBox="0 0 160 160">
                       <circle
                         cx="80"
@@ -431,11 +436,6 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  {/* ลบปุ่มจำลองออกแล้ว เพื่อให้ใช้ค่าจาก Firebase เท่านั้น */}
-                  <div className="w-full py-2 px-4 rounded-full font-semibold text-xs flex items-center justify-center space-x-2 bg-purple-500/10 border border-purple-400/30 text-purple-300">
-                    <span>📡</span>
-                    <span>ซิงค์ข้อมูลเรียลไทม์จากกล้อง AI</span>
-                  </div>
                 </div>
 
               </div>

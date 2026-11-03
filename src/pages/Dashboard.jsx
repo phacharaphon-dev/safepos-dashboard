@@ -21,7 +21,8 @@ export default function Dashboard() {
   const [isCooldown, setIsCooldown] = useState(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0); 
   
-  const riskThreshold = 50;
+  // 🔴 ตั้งเกณฑ์เตือนภัยใหม่ (คะแนนต่ำกว่า 30 ถือว่าอันตราย)
+  const riskThreshold = 30; 
 
   const [deviceStatus, setDeviceStatus] = useState('Online');
   const [postureStateFromDB, setPostureStateFromDB] = useState('Normal');
@@ -42,19 +43,29 @@ export default function Dashboard() {
         
         const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
         const normalizedStatus = String(rawStatus).trim().toLowerCase();
-
-        // 🔴 รับค่าคะแนนจริง (live_score) จากเพื่อน ถ้าไม่มีให้ถอยกลับไปใช้ค่า Default
+        
         const realTimeScore = data.live_score;
+        let finalScore = 100;
 
-        if (normalizedStatus === 'critical') {
-          setPostureStateFromDB('Critical');
-          setScore(realTimeScore !== undefined ? realTimeScore : 0);
-        } else if (normalizedStatus === 'warning') {
-          setPostureStateFromDB('Warning');
-          setScore(realTimeScore !== undefined ? realTimeScore : 60);
+        // ดึงค่าตัวเลขมาให้ชัวร์ก่อน
+        if (realTimeScore !== undefined) {
+          finalScore = realTimeScore;
         } else {
-          setPostureStateFromDB('Normal');
-          setScore(realTimeScore !== undefined ? realTimeScore : 100);
+          // ถ้าไม่มีตัวเลขส่งมา ให้เดาจากคำศัพท์
+          if (normalizedStatus === 'critical') finalScore = 0;
+          else if (normalizedStatus === 'warning') finalScore = 60;
+          else finalScore = 100;
+        }
+
+        setScore(finalScore);
+
+        // 🔴 บังคับเปลี่ยนสีตามเกณฑ์ "ตัวเลขคะแนน" เท่านั้น!
+        if (finalScore <= 30) {
+          setPostureStateFromDB('Critical'); // 0-30 สีแดง
+        } else if (finalScore <= 60) {
+          setPostureStateFromDB('Warning');  // 31-60 สีเหลือง
+        } else {
+          setPostureStateFromDB('Normal');   // 61-100 สีม่วง
         }
       }
     });
@@ -121,7 +132,6 @@ export default function Dashboard() {
 
   const isNormal = postureStateFromDB === 'Normal';
   const isWarning = postureStateFromDB === 'Warning';
-  // const isCritical = postureStateFromDB === 'Critical'; // เอาไว้ใช้ถ้าต้องการเช็คแยก
 
   const statusColor = isNormal ? '#a855f7' : isWarning ? '#f59e0b' : '#f43f5e';
   const statusGlow = isNormal ? 'rgba(168,85,247,0.6)' : isWarning ? 'rgba(245,158,11,0.6)' : 'rgba(244,63,94,0.6)';

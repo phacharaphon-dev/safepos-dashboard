@@ -144,7 +144,7 @@ export default function Analytics() {
                             {log.max_angle}°
                           </td>
                           <td className="py-4 px-4 text-sm text-slate-300">
-                            {log.duration_sec} วินาที
+                            {log.duration_sec ? `${log.duration_sec} วินาที` : <span className="text-slate-500">ไม่ระบุเวลา</span>}
                           </td>
                           <td className="py-4 px-4">
                             <span className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wider uppercase border backdrop-blur-md ${

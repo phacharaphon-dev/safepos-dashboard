@@ -32,6 +32,7 @@ export default function Dashboard() {
   });
   const [isPopupEnabled, setIsPopupEnabled] = useState(true);
 
+  // 1. ดึงข้อมูลจาก Firebase
   useEffect(() => {
     const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
     const unsubDevice = onValue(deviceRef, (snapshot) => {
@@ -42,15 +43,18 @@ export default function Dashboard() {
         const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
         const normalizedStatus = String(rawStatus).trim().toLowerCase();
 
+        // 🔴 รับค่าคะแนนจริง (live_score) จากเพื่อน ถ้าไม่มีให้ถอยกลับไปใช้ค่า Default
+        const realTimeScore = data.live_score;
+
         if (normalizedStatus === 'critical') {
           setPostureStateFromDB('Critical');
-          setScore(0);
+          setScore(realTimeScore !== undefined ? realTimeScore : 0);
         } else if (normalizedStatus === 'warning') {
           setPostureStateFromDB('Warning');
-          setScore(60);
+          setScore(realTimeScore !== undefined ? realTimeScore : 60);
         } else {
           setPostureStateFromDB('Normal');
-          setScore(100);
+          setScore(realTimeScore !== undefined ? realTimeScore : 100);
         }
       }
     });
@@ -84,6 +88,7 @@ export default function Dashboard() {
     };
   }, []);
 
+  // 2. ระบบเตือนภัยและหน่วงเวลา
   useEffect(() => {
     let graceTimer;
     if (score <= riskThreshold && !hasAlerted && !isCooldown) {
@@ -100,6 +105,7 @@ export default function Dashboard() {
     return () => clearTimeout(graceTimer);
   }, [score, hasAlerted, isPopupEnabled, isCooldown]);
 
+  // 3. ระบบเวลานับถอยหลังพักการเตือน
   useEffect(() => {
     let countdownInterval;
     if (isCooldown && cooldownTimeLeft > 0) {
@@ -115,7 +121,7 @@ export default function Dashboard() {
 
   const isNormal = postureStateFromDB === 'Normal';
   const isWarning = postureStateFromDB === 'Warning';
-  const isCritical = postureStateFromDB === 'Critical';
+  // const isCritical = postureStateFromDB === 'Critical'; // เอาไว้ใช้ถ้าต้องการเช็คแยก
 
   const statusColor = isNormal ? '#a855f7' : isWarning ? '#f59e0b' : '#f43f5e';
   const statusGlow = isNormal ? 'rgba(168,85,247,0.6)' : isWarning ? 'rgba(245,158,11,0.6)' : 'rgba(244,63,94,0.6)';
@@ -242,7 +248,7 @@ export default function Dashboard() {
               <span className="w-2 h-2 rounded-full bg-[#00f5a0] shadow-[0_0_8px_#00f5a0]"></span>
             </Link>
           </nav>
-          <a href="#logout" className="flex items-center space-x-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition mt-auto">
+          <a href="#logout" className="flex items-center space-x-3 px-4 py-2.5 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-white/5 transition mt-auto">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
           </a>
         </aside>

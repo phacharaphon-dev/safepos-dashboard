@@ -21,8 +21,7 @@ export default function Dashboard() {
   const [isCooldown, setIsCooldown] = useState(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0); 
   
-  // 🔴 ตั้งเกณฑ์เตือนภัยใหม่ (คะแนนต่ำกว่า 30 ถือว่าอันตราย)
-  const riskThreshold = 30; 
+  const riskThreshold = 30; // แจ้งเตือนเมื่อคะแนนต่ำกว่า 30
 
   const [deviceStatus, setDeviceStatus] = useState('Online');
   const [postureStateFromDB, setPostureStateFromDB] = useState('Normal');
@@ -33,7 +32,6 @@ export default function Dashboard() {
   });
   const [isPopupEnabled, setIsPopupEnabled] = useState(true);
 
-  // 1. ดึงข้อมูลจาก Firebase
   useEffect(() => {
     const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
     const unsubDevice = onValue(deviceRef, (snapshot) => {
@@ -47,11 +45,9 @@ export default function Dashboard() {
         const realTimeScore = data.live_score;
         let finalScore = 100;
 
-        // ดึงค่าตัวเลขมาให้ชัวร์ก่อน
         if (realTimeScore !== undefined) {
           finalScore = realTimeScore;
         } else {
-          // ถ้าไม่มีตัวเลขส่งมา ให้เดาจากคำศัพท์
           if (normalizedStatus === 'critical') finalScore = 0;
           else if (normalizedStatus === 'warning') finalScore = 60;
           else finalScore = 100;
@@ -59,7 +55,7 @@ export default function Dashboard() {
 
         setScore(finalScore);
 
-        // 🔴 บังคับเปลี่ยนสีตามเกณฑ์ "ตัวเลขคะแนน" เท่านั้น!
+        // 🔴 ลอจิกบังคับเปลี่ยนสีตาม "ตัวเลขคะแนน" ที่ถูกต้อง 100%
         if (finalScore <= 30) {
           setPostureStateFromDB('Critical'); // 0-30 สีแดง
         } else if (finalScore <= 60) {
@@ -99,7 +95,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  // 2. ระบบเตือนภัยและหน่วงเวลา
+  // 2. ระบบเตือนภัยและหน่วงเวลา (🔴 เพิ่มคำสั่งปิดป๊อปอัปอัตโนมัติ)
   useEffect(() => {
     let graceTimer;
     if (score <= riskThreshold && !hasAlerted && !isCooldown) {
@@ -110,13 +106,14 @@ export default function Dashboard() {
         }, 3000); 
       }
     } else if (score > riskThreshold) {
+      // ถ้านั่งกลับมาถูกท่า ให้ยกเลิกการเตือนและซ่อนหน้าต่างป๊อปอัปทันที
       setHasAlerted(false);
+      setShowDangerModal(false); 
       clearTimeout(graceTimer);
     }
     return () => clearTimeout(graceTimer);
   }, [score, hasAlerted, isPopupEnabled, isCooldown]);
 
-  // 3. ระบบเวลานับถอยหลังพักการเตือน
   useEffect(() => {
     let countdownInterval;
     if (isCooldown && cooldownTimeLeft > 0) {
@@ -184,7 +181,7 @@ export default function Dashboard() {
               แจ้งเตือนท่านั่งอันตราย!
             </h3>
             <p className="mt-2 text-sm text-slate-300 leading-relaxed">
-              สถานะท่านั่งของคุณอยู่ในระดับความเสี่ยง (<span className="text-rose-400 font-bold">{score}% Critical</span>) กรุณาปรับท่านั่งให้หลังตรงเพื่อป้องกันออฟฟิศซินโดรมครับ
+              สถานะท่านั่งของคุณอยู่ในระดับความเสี่ยง (<span className="text-rose-400 font-bold">{score}%</span>) กรุณาปรับท่านั่งให้หลังตรงเพื่อป้องกันออฟฟิศซินโดรมครับ
             </p>
             <button
               onClick={() => {

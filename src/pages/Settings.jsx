@@ -5,17 +5,16 @@ export default function Settings() {
   const { settings, saveStatus, updateSetting, updateSettingDebounced } = useUserSettings('user123');
 
   const calculatePercent = (value, min, max) => {
-    return `${((value - min) / (max - min)) * 100}%`;
+    const pct = ((Number(value) - min) / (max - min)) * 100;
+    return `${Math.min(100, Math.max(0, pct))}%`;
   };
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#070514] font-sans text-white selection:bg-purple-500 selection:text-white">
-      {/* Ambient Background Glows */}
       <div className="pointer-events-none absolute top-[-10%] left-[15%] w-[700px] h-[400px] bg-purple-600/30 blur-[150px] rounded-full" />
       <div className="pointer-events-none absolute bottom-[-10%] right-[15%] w-[600px] h-[400px] bg-indigo-600/20 blur-[140px] rounded-full" />
       <div className="pointer-events-none absolute top-[40%] left-[40%] w-[500px] h-[300px] bg-fuchsia-600/10 blur-[120px] rounded-full" />
 
-      {/* TOP BAR - Glassmorphism */}
       <header className="relative z-20 w-full px-8 py-4 flex items-center justify-between border-b border-white/10 bg-white/[0.02] backdrop-blur-2xl shadow-sm">
         <div className="flex items-center space-x-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-700 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.7)] border border-white/20">
@@ -45,10 +44,7 @@ export default function Settings() {
         </div>
       </header>
 
-      {/* MAIN CONTENT SHELL */}
       <main className="relative z-10 flex-1 w-full px-6 py-5 flex gap-7 overflow-hidden">
-        
-        {/* LEFT SIDEBAR - Liquid Glass */}
         <aside className="w-60 flex flex-col justify-between py-5 px-3.5 rounded-[26px] bg-white/[0.03] backdrop-blur-2xl border border-white/10 border-t-white/20 border-l-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] shrink-0">
           <nav className="flex flex-col space-y-2.5 w-full">
             <Link to="/" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl text-slate-300 hover:text-white hover:bg-white/10 transition">
@@ -89,10 +85,8 @@ export default function Settings() {
           </nav>
         </aside>
 
-        {/* BODY CONTENT */}
         <div className="flex-1 overflow-y-auto pr-2 pb-6">
           <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
-            
             <div className="flex items-center justify-between">
               <div>
                 <h1 className="text-3xl font-extrabold text-white tracking-wide drop-shadow-md">
@@ -110,15 +104,12 @@ export default function Settings() {
               )}
             </div>
 
-            {/* Card 1: Threshold & timing */}
             <section className="w-full rounded-[28px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-8 flex flex-col gap-6 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
               <div className="flex flex-col gap-1 pb-4 border-b border-white/10">
                 <h2 className="text-xl font-bold text-white tracking-tight drop-shadow-sm">Threshold &amp; Timing</h2>
                 <p className="text-xs text-slate-300">Posture anomaly detection triggers and response intervals</p>
               </div>
               <div className="flex flex-col divide-y divide-white/5 gap-6">
-                
-                {/* Angle threshold */}
                 <div className="flex flex-col gap-3 pt-2">
                   <div className="flex items-center justify-between">
                     <div>
@@ -130,41 +121,40 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="w-full flex flex-col gap-2 pt-1 relative">
-                    <input 
-                      type="range" min="15" max="30" step="1"
+                    <input
+                      type="range" min="15" max="35" step="1"
                       value={settings.angle_threshold}
                       onChange={(e) => updateSettingDebounced('angle_threshold', Number(e.target.value))}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0" 
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0"
                     />
                     <div className="relative w-full h-2.5 rounded-full bg-black/40 border border-white/10 overflow-visible flex items-center pointer-events-none shadow-inner">
-                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.angle_threshold, 15, 30) }}></div>
-                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.angle_threshold, 15, 30) }}></div>
+                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.angle_threshold, 15, 35) }}></div>
+                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.angle_threshold, 15, 35) }}></div>
                     </div>
                     <div className="flex justify-between items-center text-[11px] font-mono text-slate-300 px-0.5 pointer-events-none">
-                      <span>15°</span><span>20°</span><span>25°</span><span>30°</span>
+                      <span>15°</span><span>20°</span><span>25°</span><span>30°</span><span>35°</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Time threshold */}
                 <div className="flex items-center justify-between gap-4 pt-6">
                   <div className="flex-1 pr-4">
-                    <h3 className="text-sm font-semibold text-white tracking-tight">Time threshold (minutes)</h3>
+                    <h3 className="text-sm font-semibold text-white tracking-tight">Time threshold (seconds)</h3>
                     <p className="text-xs text-slate-300 mt-0.5">Continuous duration required in slouch posture before recording an event</p>
                   </div>
                   <div className="flex items-center bg-black/30 border border-white/10 rounded-xl p-1 gap-2 shadow-inner backdrop-blur-md">
-                    <button 
-                      onClick={() => updateSetting('time_threshold_sec', Math.max(60, settings.time_threshold_sec - 60))}
+                    <button
+                      onClick={() => updateSetting('time_threshold_sec', Math.max(5, Number(settings.time_threshold_sec) - 5))}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/20 text-slate-200 hover:text-white transition z-10 border border-transparent hover:border-white/10"
                     >
                       <svg className="w-4 h-4 stroke-current pointer-events-none" fill="none" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M5 12h14" strokeLinecap="round"></path></svg>
                     </button>
-                    <div className="flex items-baseline px-2 min-w-[3.5rem] justify-center text-center pointer-events-none">
-                      <span className="text-base font-bold text-white font-mono drop-shadow-md">{settings.time_threshold_sec / 60}</span>
-                      <span className="text-xs text-slate-300 font-medium ml-1">min</span>
+                    <div className="flex items-baseline px-2 min-w-[4rem] justify-center text-center pointer-events-none">
+                      <span className="text-base font-bold text-white font-mono drop-shadow-md">{settings.time_threshold_sec}</span>
+                      <span className="text-xs text-slate-300 font-medium ml-1">sec</span>
                     </div>
-                    <button 
-                      onClick={() => updateSetting('time_threshold_sec', Math.min(3600, settings.time_threshold_sec + 60))}
+                    <button
+                      onClick={() => updateSetting('time_threshold_sec', Math.min(600, Number(settings.time_threshold_sec) + 5))}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/20 text-slate-200 hover:text-white transition z-10 border border-transparent hover:border-white/10"
                     >
                       <svg className="w-4 h-4 stroke-current pointer-events-none" fill="none" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14" strokeLinecap="round"></path></svg>
@@ -172,7 +162,6 @@ export default function Settings() {
                   </div>
                 </div>
 
-                {/* Cooldown period */}
                 <div className="flex flex-col gap-3 pt-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -184,64 +173,57 @@ export default function Settings() {
                     </div>
                   </div>
                   <div className="w-full flex flex-col gap-2 pt-1 relative">
-                    <input 
-                      type="range" min="5" max="60" step="1"
+                    <input
+                      type="range" min="1" max="60" step="1"
                       value={settings.cooldown_period_min}
                       onChange={(e) => updateSettingDebounced('cooldown_period_min', Number(e.target.value))}
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0" 
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0"
                     />
                     <div className="relative w-full h-2.5 rounded-full bg-black/40 border border-white/10 overflow-visible flex items-center pointer-events-none shadow-inner">
-                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.cooldown_period_min, 5, 60) }}></div>
-                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.cooldown_period_min, 5, 60) }}></div>
+                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.cooldown_period_min, 1, 60) }}></div>
+                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.cooldown_period_min, 1, 60) }}></div>
                     </div>
                     <div className="flex justify-between items-center text-[11px] font-mono text-slate-300 px-0.5 pointer-events-none">
-                      <span>5m</span><span>15m</span><span>30m</span><span>45m</span><span>60m</span>
+                      <span>1m</span><span>15m</span><span>30m</span><span>45m</span><span>60m</span>
                     </div>
                   </div>
                 </div>
-
               </div>
             </section>
 
-            {/* Card 2: Alert preferences */}
             <section className="w-full rounded-[28px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-8 flex flex-col gap-6 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
               <div className="flex flex-col gap-1 pb-4 border-b border-white/10">
                 <h2 className="text-xl font-bold text-white tracking-tight drop-shadow-sm">Alert Preferences</h2>
                 <p className="text-xs text-slate-300">Audio-visual feedback channels for active session monitoring</p>
               </div>
               <div className="flex flex-col divide-y divide-white/5 gap-6">
-                
-                {/* Sound alert */}
                 <div className="flex items-center justify-between gap-4 pt-2">
                   <div className="flex-1 pr-4">
                     <h3 className="text-sm font-semibold text-white tracking-tight">Sound alert</h3>
                     <p className="text-xs text-slate-300 mt-0.5">Play subtle acoustic chime when deviation exceeds threshold</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => updateSetting('is_sound_enabled', !settings.is_sound_enabled)}
-                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_sound_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_sound_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`}
                   >
                     <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${settings.is_sound_enabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
                   </button>
                 </div>
 
-                {/* Screen pop-up overlay */}
                 <div className="flex items-center justify-between gap-4 pt-6">
                   <div className="flex-1 pr-4">
                     <h3 className="text-sm font-semibold text-white tracking-tight">Screen pop-up overlay</h3>
                     <p className="text-xs text-slate-300 mt-0.5">Display unobtrusive HUD banner over active desktop workspace</p>
                   </div>
-                  <button 
+                  <button
                     onClick={() => updateSetting('is_popup_enabled', !settings.is_popup_enabled)}
-                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_popup_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_popup_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`}
                   >
                     <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${settings.is_popup_enabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
                   </button>
                 </div>
-
               </div>
             </section>
-
           </div>
         </div>
       </main>

@@ -1,36 +1,68 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ref, onValue } from 'firebase/database';
+import { ref, onValue, update } from 'firebase/database';
 import { rtdb } from '../firebase';
 
 const USER_ID = 'user123';
 const DEVICE_ID = 'CAM-01-OFFICE';
 
-function formatMinutes(totalMin) {
-  const m = Number(totalMin) || 0;
-  const hours = Math.floor(m / 60);
-  const mins = m % 60;
-  return `${hours}h ${mins}m`;
+function formatSeconds(totalSec) {
+  const s = Number(totalSec) || 0;
+  const hours = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  const secs = s % 60;
+  return `${hours}h ${mins}m ${secs}s`;
+}
+
+function getTodayKey() {
+  const now = new Date();
+  return `${USER_ID}_${now.toISOString().split('T')[0]}`;
+}
+
+function playAlertSound() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AudioCtx();
+    [880, 660].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18);
+
+      gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.18);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.18 + 0.3);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.3);
+    });
+  } catch (err) {
+    console.error('Cannot play alert sound:', err);
+  }
 }
 
 export default function Dashboard() {
   const [score, setScore] = useState(100);
   const [showDangerModal, setShowDangerModal] = useState(false);
   const [hasAlerted, setHasAlerted] = useState(false);
-  
+
   const [isCooldown, setIsCooldown] = useState(false);
-  const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0); 
-  
+  const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0);
+
   const riskThreshold = 30; // แจ้งเตือนเมื่อคะแนนต่ำกว่า 30
 
   const [deviceStatus, setDeviceStatus] = useState('Online');
   const [postureStateFromDB, setPostureStateFromDB] = useState('Normal');
   const [summary, setSummary] = useState({
+    total_active_time_sec: 0,
+    total_bad_posture_sec: 0,
     total_active_time_min: 0,
     total_bad_posture_min: 0,
     alert_count: 0,
   });
   const [isPopupEnabled, setIsPopupEnabled] = useState(true);
+  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
 
   useEffect(() => {
     const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
@@ -38,10 +70,10 @@ export default function Dashboard() {
       if (snapshot.exists()) {
         const data = snapshot.val();
         setDeviceStatus(data.status || 'Online');
-        
+
         const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
         const normalizedStatus = String(rawStatus).trim().toLowerCase();
-        
+
         const realTimeScore = data.live_score;
         let finalScore = 100;
 
@@ -55,7 +87,6 @@ export default function Dashboard() {
 
         setScore(finalScore);
 
-        // 🔴 ลอจิกบังคับเปลี่ยนสีตาม "ตัวเลขคะแนน" ที่ถูกต้อง 100%
         if (finalScore <= 30) {
           setPostureStateFromDB('Critical'); // 0-30 สีแดง
         } else if (finalScore <= 60) {
@@ -66,15 +97,17 @@ export default function Dashboard() {
       }
     });
 
-    const summariesRef = ref(rtdb, 'Daily_Summaries');
-    const unsubSummaries = onValue(summariesRef, (snapshot) => {
+    const todaySummaryRef = ref(rtdb, `Daily_Summaries/${getTodayKey()}`);
+    const unsubSummaries = onValue(todaySummaryRef, (snapshot) => {
       if (snapshot.exists()) {
-        const allSummaries = snapshot.val();
-        const userKeys = Object.keys(allSummaries).filter((k) => k.startsWith(`${USER_ID}_`)).sort();
-        if (userKeys.length > 0) {
-          const latestKey = userKeys[userKeys.length - 1];
-          setSummary(allSummaries[latestKey]);
-        }
+        const data = snapshot.val();
+        setSummary({
+          total_active_time_sec: data.total_active_time_sec ?? Math.floor((data.total_active_time_min || 0) * 60),
+          total_bad_posture_sec: data.total_bad_posture_sec ?? Math.floor((data.total_bad_posture_min || 0) * 60),
+          total_active_time_min: data.total_active_time_min || 0,
+          total_bad_posture_min: data.total_bad_posture_min || 0,
+          alert_count: data.alert_count || 0,
+        });
       }
     });
 
@@ -84,6 +117,9 @@ export default function Dashboard() {
         const s = snapshot.val();
         if (typeof s.is_popup_enabled === 'boolean') {
           setIsPopupEnabled(s.is_popup_enabled);
+        }
+        if (typeof s.is_sound_enabled === 'boolean') {
+          setIsSoundEnabled(s.is_sound_enabled);
         }
       }
     });
@@ -95,7 +131,40 @@ export default function Dashboard() {
     };
   }, []);
 
-  // 2. ระบบเตือนภัยและหน่วงเวลา (🔴 เพิ่มคำสั่งปิดป๊อปอัปอัตโนมัติ)
+  // ⏱️ Real-time Telemetry: นับเวลานั่งรวม + เวลานั่งผิดท่า อัปเดตลง Firebase ทุกๆ 1 วินาที
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (deviceStatus === 'Online') {
+        setSummary((prev) => {
+          const nextActiveSec = (prev.total_active_time_sec || 0) + 1;
+          const isBadPosture = postureStateFromDB === 'Warning' || postureStateFromDB === 'Critical';
+          const nextBadSec = isBadPosture
+            ? (prev.total_bad_posture_sec || 0) + 1
+            : (prev.total_bad_posture_sec || 0);
+
+          const todayRef = ref(rtdb, `Daily_Summaries/${getTodayKey()}`);
+          update(todayRef, {
+            total_active_time_sec: nextActiveSec,
+            total_active_time_min: Math.floor(nextActiveSec / 60),
+            total_bad_posture_sec: nextBadSec,
+            total_bad_posture_min: Math.floor(nextBadSec / 60),
+          }).catch((err) => console.error('Telemetry sync error:', err));
+
+          return {
+            ...prev,
+            total_active_time_sec: nextActiveSec,
+            total_active_time_min: Math.floor(nextActiveSec / 60),
+            total_bad_posture_sec: nextBadSec,
+            total_bad_posture_min: Math.floor(nextBadSec / 60),
+          };
+        });
+      }
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [deviceStatus, postureStateFromDB]);
+
+  // ระบบเตือนภัย + เสียงแจ้งเตือน + บวกจำนวนครั้งลง Firebase
   useEffect(() => {
     let graceTimer;
     if (score <= riskThreshold && !hasAlerted && !isCooldown) {
@@ -103,16 +172,26 @@ export default function Dashboard() {
         graceTimer = setTimeout(() => {
           setShowDangerModal(true);
           setHasAlerted(true);
-        }, 3000); 
+
+          if (isSoundEnabled) {
+            playAlertSound();
+          }
+
+          setSummary((prev) => {
+            const nextAlerts = (prev.alert_count || 0) + 1;
+            const todayRef = ref(rtdb, `Daily_Summaries/${getTodayKey()}`);
+            update(todayRef, { alert_count: nextAlerts }).catch(console.error);
+            return { ...prev, alert_count: nextAlerts };
+          });
+        }, 3000);
       }
     } else if (score > riskThreshold) {
-      // ถ้านั่งกลับมาถูกท่า ให้ยกเลิกการเตือนและซ่อนหน้าต่างป๊อปอัปทันที
       setHasAlerted(false);
-      setShowDangerModal(false); 
+      setShowDangerModal(false);
       clearTimeout(graceTimer);
     }
     return () => clearTimeout(graceTimer);
-  }, [score, hasAlerted, isPopupEnabled, isCooldown]);
+  }, [score, hasAlerted, isPopupEnabled, isSoundEnabled, isCooldown]);
 
   useEffect(() => {
     let countdownInterval;
@@ -153,7 +232,7 @@ export default function Dashboard() {
       {/* Ambient Background Glows */}
       <div className="pointer-events-none absolute top-[-10%] left-[15%] w-[700px] h-[400px] bg-purple-600/30 blur-[150px] rounded-full" />
       <div className="pointer-events-none absolute bottom-[-10%] right-[15%] w-[600px] h-[400px] bg-indigo-600/20 blur-[140px] rounded-full" />
-      
+
       {/* Background Graphic */}
       <svg className="pointer-events-none absolute top-0 left-0 w-full h-44 opacity-40 mix-blend-screen" viewBox="0 0 1440 200" fill="none">
         <path d="M-100 160 C 300 40, 800 180, 1540 20" stroke="url(#neonWave)" strokeWidth="2.5" filter="drop-shadow(0 0 12px #a855f7)" />
@@ -168,7 +247,7 @@ export default function Dashboard() {
         </defs>
       </svg>
 
-      {/* POP-UP แจ้งเตือนอันตราย - Glassmorphism */}
+      {/* POP-UP แจ้งเตือนอันตราย */}
       {showDangerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-lg p-4">
           <div className="relative w-full max-w-md rounded-[28px] bg-white/[0.05] border-2 border-rose-500/50 p-7 text-center shadow-[0_0_70px_rgba(244,63,94,0.4)] backdrop-blur-2xl">
@@ -187,7 +266,7 @@ export default function Dashboard() {
               onClick={() => {
                 setShowDangerModal(false);
                 setIsCooldown(true);
-                setCooldownTimeLeft(60); 
+                setCooldownTimeLeft(60);
               }}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-6 py-3 font-bold text-white shadow-[0_0_25px_rgba(244,63,94,0.5)] hover:from-rose-600 hover:to-pink-700 transition active:scale-95"
             >
@@ -197,7 +276,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* TOP BAR - Glassmorphism */}
+      {/* TOP BAR */}
       <header className="relative z-20 w-full px-8 py-4 flex items-center justify-between border-b border-white/10 bg-white/[0.02] backdrop-blur-2xl shadow-sm">
         <div className="flex items-center space-x-3 cursor-pointer">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-700 flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.7)] border border-white/20">
@@ -210,10 +289,10 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center space-x-4">
           {isCooldown && (
-             <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse backdrop-blur-md">
-               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-               <span>Alert Snoozed ({cooldownTimeLeft}s)</span>
-             </div>
+            <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse backdrop-blur-md">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <span>Alert Snoozed ({cooldownTimeLeft}s)</span>
+            </div>
           )}
           <button className="relative w-10 h-10 rounded-full bg-black/20 border border-white/10 flex items-center justify-center text-slate-200 hover:text-white hover:bg-white/10 transition backdrop-blur-md">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
@@ -227,8 +306,8 @@ export default function Dashboard() {
 
       {/* MAIN CONTENT SHELL */}
       <main className="relative z-10 flex-1 w-full px-6 py-5 flex gap-7 overflow-hidden">
-        
-        {/* LEFT SIDEBAR - Liquid Glass */}
+
+        {/* LEFT SIDEBAR */}
         <aside className="w-60 flex flex-col justify-between py-5 px-3.5 rounded-[26px] bg-white/[0.03] backdrop-blur-2xl border border-white/10 border-t-white/20 border-l-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.5)] shrink-0">
           <nav className="flex flex-col space-y-2.5 w-full">
             <Link to="/" className="flex items-center space-x-3.5 px-4 py-3 rounded-2xl bg-white/10 text-white font-semibold border border-white/20 shadow-[0_4px_15px_rgba(0,0,0,0.2)] transition backdrop-blur-md">
@@ -263,7 +342,7 @@ export default function Dashboard() {
         {/* DASHBOARD BODY CONTENT */}
         <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
           <div className="w-full max-w-7xl mx-auto flex-1 flex flex-col">
-            
+
             <div className="mb-5">
               <h1 className="text-3xl font-extrabold text-white tracking-wide drop-shadow-md">
                 Dashboard
@@ -275,8 +354,8 @@ export default function Dashboard() {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_1fr_1.05fr] gap-6 flex-1 items-stretch min-h-[520px]">
-              
-              {/* COLUMN 1: LIVE CAMERA VIEW - Liquid Glass */}
+
+              {/* COLUMN 1: LIVE CAMERA VIEW */}
               <div className="relative rounded-[28px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 shadow-[0_10px_40px_rgba(0,0,0,0.5)] p-5 flex flex-col justify-between overflow-hidden">
                 <div className="flex items-center justify-between z-10 mb-3">
                   <div className="flex items-center space-x-3">
@@ -302,8 +381,8 @@ export default function Dashboard() {
                     <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-white/40 rounded-tr-[16px] z-20" />
                     <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-white/40 rounded-bl-[16px] z-20" />
                     <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-white/40 rounded-br-[16px] z-20" />
-                    <img 
-                      src="http://127.0.0.1:5000/video_feed" alt="Live Posture AI Feed" 
+                    <img
+                      src="http://127.0.0.1:5000/video_feed" alt="Live Posture AI Feed"
                       className="absolute inset-0 w-full h-full object-cover z-10 opacity-90"
                       onError={(e) => { e.target.onerror = null; e.target.src = "https://via.placeholder.com/800x600/080614/a855f7?text=CAMERA+OFFLINE"; }}
                     />
@@ -313,8 +392,8 @@ export default function Dashboard() {
 
               {/* COLUMN 2: CURRENT STATUS & POSTURE SCORE */}
               <div className="flex flex-col gap-5 justify-between">
-                
-                {/* Box 1: CURRENT STATUS - Liquid Glass */}
+
+                {/* Box 1: CURRENT STATUS */}
                 <div className="relative flex-1 rounded-[26px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-5 flex flex-col justify-between items-center text-center shadow-[0_10px_40px_rgba(0,0,0,0.5)] overflow-hidden">
                   <div className="w-full flex items-center space-x-2 text-left">
                     <div className="w-7 h-7 rounded-full bg-white/10 border border-white/20 flex items-center justify-center text-white">
@@ -349,7 +428,7 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* Box 2: POSTURE SCORE - Liquid Glass */}
+                {/* Box 2: POSTURE SCORE */}
                 <div className="relative flex-1 rounded-[26px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-5 flex flex-col justify-between items-center shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
                   <div className="w-full flex items-center justify-between">
                     <div className="flex items-center space-x-2">
@@ -382,7 +461,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              {/* COLUMN 3: DAILY SUMMARY - Liquid Glass */}
+              {/* COLUMN 3: DAILY SUMMARY */}
               <div className="rounded-[26px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-6 flex flex-col justify-between shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
                 <div className="flex items-center space-x-2.5 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center text-white">
@@ -400,7 +479,7 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <span className="text-base font-semibold text-slate-200 block drop-shadow-sm">Total Active Time</span>
-                        <p className="text-4xl sm:text-5xl font-black text-white mt-1 tracking-tight drop-shadow-md">{formatMinutes(summary.total_active_time_min)}</p>
+                        <p className="text-3xl sm:text-4xl font-black text-white mt-1 tracking-tight drop-shadow-md">{formatSeconds(summary.total_active_time_sec)}</p>
                       </div>
                     </div>
                   </div>
@@ -413,7 +492,7 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <span className="text-base font-semibold text-slate-200 leading-snug block drop-shadow-sm">Bad Posture Accumulation</span>
-                        <p className="text-4xl sm:text-5xl font-black text-white mt-1 tracking-tight drop-shadow-md">{formatMinutes(summary.total_bad_posture_min)}</p>
+                        <p className="text-3xl sm:text-4xl font-black text-white mt-1 tracking-tight drop-shadow-md">{formatSeconds(summary.total_bad_posture_sec)}</p>
                       </div>
                     </div>
                   </div>

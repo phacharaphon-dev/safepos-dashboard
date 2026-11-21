@@ -1,38 +1,8 @@
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ref, onValue, update } from 'firebase/database';
-import { rtdb } from '../firebase';
-
-const USER_ID = 'user123';
+import { useUserSettings } from '../hooks/useUserSettings';
 
 export default function Settings() {
-  const [angleThreshold, setAngleThreshold] = useState(20);
-  const [timeThresholdSec, setTimeThresholdSec] = useState(180); 
-  const [cooldownPeriodMin, setCooldownPeriodMin] = useState(15);
-  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
-  const [isPopupEnabled, setIsPopupEnabled] = useState(true);
-
-  useEffect(() => {
-    const settingsRef = ref(rtdb, `Users/${USER_ID}/settings`);
-    
-    const unsubscribe = onValue(settingsRef, (snapshot) => {
-      if (snapshot.exists()) {
-        const data = snapshot.val();
-        if (data.angle_threshold !== undefined) setAngleThreshold(data.angle_threshold);
-        if (data.time_threshold_sec !== undefined) setTimeThresholdSec(data.time_threshold_sec);
-        if (data.cooldown_period_min !== undefined) setCooldownPeriodMin(data.cooldown_period_min);
-        if (data.is_sound_enabled !== undefined) setIsSoundEnabled(data.is_sound_enabled);
-        if (data.is_popup_enabled !== undefined) setIsPopupEnabled(data.is_popup_enabled);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const updateSetting = (key, value) => {
-    const settingsRef = ref(rtdb, `Users/${USER_ID}/settings`);
-    update(settingsRef, { [key]: value }).catch(err => console.error("Error updating setting:", err));
-  };
+  const { settings, saveStatus, updateSetting, updateSettingDebounced } = useUserSettings('user123');
 
   const calculatePercent = (value, min, max) => {
     return `${((value - min) / (max - min)) * 100}%`;
@@ -40,7 +10,7 @@ export default function Settings() {
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-x-hidden bg-[#070514] font-sans text-white selection:bg-purple-500 selection:text-white">
-      {/* Ambient Background Glows - ปรับให้แสงสว่างขึ้นนิดหน่อยเพื่อให้ทะลุกระจกสวยๆ */}
+      {/* Ambient Background Glows */}
       <div className="pointer-events-none absolute top-[-10%] left-[15%] w-[700px] h-[400px] bg-purple-600/30 blur-[150px] rounded-full" />
       <div className="pointer-events-none absolute bottom-[-10%] right-[15%] w-[600px] h-[400px] bg-indigo-600/20 blur-[140px] rounded-full" />
       <div className="pointer-events-none absolute top-[40%] left-[40%] w-[500px] h-[300px] bg-fuchsia-600/10 blur-[120px] rounded-full" />
@@ -123,17 +93,24 @@ export default function Settings() {
         <div className="flex-1 overflow-y-auto pr-2 pb-6">
           <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
             
-            <div>
-              <h1 className="text-3xl font-extrabold text-white tracking-wide drop-shadow-md">
-                Parameter Settings
-              </h1>
-              <p className="text-sm text-slate-300 mt-1 drop-shadow-sm">
-                Configure real-time kinematic detection thresholds and notification preferences
-              </p>
-              <div className="mt-2.5 h-1.5 w-14 rounded-full bg-gradient-to-r from-purple-400 to-fuchsia-400 shadow-[0_0_12px_#a855f7]" />
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-extrabold text-white tracking-wide drop-shadow-md">
+                  Parameter Settings
+                </h1>
+                <p className="text-sm text-slate-300 mt-1 drop-shadow-sm">
+                  Configure real-time kinematic detection thresholds and notification preferences
+                </p>
+                <div className="mt-2.5 h-1.5 w-14 rounded-full bg-gradient-to-r from-purple-400 to-fuchsia-400 shadow-[0_0_12px_#a855f7]" />
+              </div>
+              {saveStatus && (
+                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/20 border border-purple-400/40 text-purple-200">
+                  {saveStatus}
+                </span>
+              )}
             </div>
 
-            {/* Card 1: Threshold & timing - Liquid Glass Card */}
+            {/* Card 1: Threshold & timing */}
             <section className="w-full rounded-[28px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-8 flex flex-col gap-6 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
               <div className="flex flex-col gap-1 pb-4 border-b border-white/10">
                 <h2 className="text-xl font-bold text-white tracking-tight drop-shadow-sm">Threshold &amp; Timing</h2>
@@ -149,21 +126,19 @@ export default function Settings() {
                       <p className="text-xs text-slate-300 mt-0.5">Maximum allowable cervical and thoracic deviation before registering an anomaly</p>
                     </div>
                     <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-base shadow-sm backdrop-blur-md">
-                      <span>{angleThreshold}°</span>
+                      <span>{settings.angle_threshold}°</span>
                     </div>
                   </div>
                   <div className="w-full flex flex-col gap-2 pt-1 relative">
                     <input 
                       type="range" min="15" max="30" step="1"
-                      value={angleThreshold}
-                      onChange={(e) => setAngleThreshold(Number(e.target.value))}
-                      onMouseUp={(e) => updateSetting('angle_threshold', Number(e.target.value))}
-                      onTouchEnd={(e) => updateSetting('angle_threshold', Number(e.target.value))}
+                      value={settings.angle_threshold}
+                      onChange={(e) => updateSettingDebounced('angle_threshold', Number(e.target.value))}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0" 
                     />
                     <div className="relative w-full h-2.5 rounded-full bg-black/40 border border-white/10 overflow-visible flex items-center pointer-events-none shadow-inner">
-                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(angleThreshold, 15, 30) }}></div>
-                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(angleThreshold, 15, 30) }}></div>
+                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.angle_threshold, 15, 30) }}></div>
+                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.angle_threshold, 15, 30) }}></div>
                     </div>
                     <div className="flex justify-between items-center text-[11px] font-mono text-slate-300 px-0.5 pointer-events-none">
                       <span>15°</span><span>20°</span><span>25°</span><span>30°</span>
@@ -179,25 +154,17 @@ export default function Settings() {
                   </div>
                   <div className="flex items-center bg-black/30 border border-white/10 rounded-xl p-1 gap-2 shadow-inner backdrop-blur-md">
                     <button 
-                      onClick={() => {
-                        const newVal = Math.max(60, timeThresholdSec - 60);
-                        setTimeThresholdSec(newVal);
-                        updateSetting('time_threshold_sec', newVal);
-                      }}
+                      onClick={() => updateSetting('time_threshold_sec', Math.max(60, settings.time_threshold_sec - 60))}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/20 text-slate-200 hover:text-white transition z-10 border border-transparent hover:border-white/10"
                     >
                       <svg className="w-4 h-4 stroke-current pointer-events-none" fill="none" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M5 12h14" strokeLinecap="round"></path></svg>
                     </button>
                     <div className="flex items-baseline px-2 min-w-[3.5rem] justify-center text-center pointer-events-none">
-                      <span className="text-base font-bold text-white font-mono drop-shadow-md">{timeThresholdSec / 60}</span>
+                      <span className="text-base font-bold text-white font-mono drop-shadow-md">{settings.time_threshold_sec / 60}</span>
                       <span className="text-xs text-slate-300 font-medium ml-1">min</span>
                     </div>
                     <button 
-                      onClick={() => {
-                        const newVal = Math.min(3600, timeThresholdSec + 60);
-                        setTimeThresholdSec(newVal);
-                        updateSetting('time_threshold_sec', newVal);
-                      }}
+                      onClick={() => updateSetting('time_threshold_sec', Math.min(3600, settings.time_threshold_sec + 60))}
                       className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/5 hover:bg-white/20 text-slate-200 hover:text-white transition z-10 border border-transparent hover:border-white/10"
                     >
                       <svg className="w-4 h-4 stroke-current pointer-events-none" fill="none" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14m-7-7h14" strokeLinecap="round"></path></svg>
@@ -213,21 +180,19 @@ export default function Settings() {
                       <p className="text-xs text-slate-300 mt-0.5">Snooze duration between consecutive warning triggers</p>
                     </div>
                     <div className="flex items-center gap-1.5 px-3.5 py-1 rounded-xl bg-white/10 border border-white/20 text-white font-bold text-base shadow-sm backdrop-blur-md">
-                      <span>{cooldownPeriodMin} min</span>
+                      <span>{settings.cooldown_period_min} min</span>
                     </div>
                   </div>
                   <div className="w-full flex flex-col gap-2 pt-1 relative">
                     <input 
                       type="range" min="5" max="60" step="1"
-                      value={cooldownPeriodMin}
-                      onChange={(e) => setCooldownPeriodMin(Number(e.target.value))}
-                      onMouseUp={(e) => updateSetting('cooldown_period_min', Number(e.target.value))}
-                      onTouchEnd={(e) => updateSetting('cooldown_period_min', Number(e.target.value))}
+                      value={settings.cooldown_period_min}
+                      onChange={(e) => updateSettingDebounced('cooldown_period_min', Number(e.target.value))}
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-30 m-0 p-0" 
                     />
                     <div className="relative w-full h-2.5 rounded-full bg-black/40 border border-white/10 overflow-visible flex items-center pointer-events-none shadow-inner">
-                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(cooldownPeriodMin, 5, 60) }}></div>
-                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(cooldownPeriodMin, 5, 60) }}></div>
+                      <div className="h-full bg-gradient-to-r from-purple-400 to-fuchsia-400 rounded-full shadow-[0_0_12px_#a855f7]" style={{ width: calculatePercent(settings.cooldown_period_min, 5, 60) }}></div>
+                      <div className="absolute w-5 h-5 rounded-full bg-white border-2 border-fuchsia-400 shadow-[0_0_15px_rgba(255,255,255,0.8)] -translate-x-1/2" style={{ left: calculatePercent(settings.cooldown_period_min, 5, 60) }}></div>
                     </div>
                     <div className="flex justify-between items-center text-[11px] font-mono text-slate-300 px-0.5 pointer-events-none">
                       <span>5m</span><span>15m</span><span>30m</span><span>45m</span><span>60m</span>
@@ -238,7 +203,7 @@ export default function Settings() {
               </div>
             </section>
 
-            {/* Card 2: Alert preferences - Liquid Glass Card */}
+            {/* Card 2: Alert preferences */}
             <section className="w-full rounded-[28px] bg-white/[0.04] backdrop-blur-3xl border border-white/10 border-t-white/20 border-l-white/20 p-8 flex flex-col gap-6 shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
               <div className="flex flex-col gap-1 pb-4 border-b border-white/10">
                 <h2 className="text-xl font-bold text-white tracking-tight drop-shadow-sm">Alert Preferences</h2>
@@ -253,14 +218,10 @@ export default function Settings() {
                     <p className="text-xs text-slate-300 mt-0.5">Play subtle acoustic chime when deviation exceeds threshold</p>
                   </div>
                   <button 
-                    onClick={() => {
-                      const newVal = !isSoundEnabled;
-                      setIsSoundEnabled(newVal);
-                      updateSetting('is_sound_enabled', newVal);
-                    }}
-                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${isSoundEnabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
+                    onClick={() => updateSetting('is_sound_enabled', !settings.is_sound_enabled)}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_sound_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
                   >
-                    <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${isSoundEnabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
+                    <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${settings.is_sound_enabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
                   </button>
                 </div>
 
@@ -271,14 +232,10 @@ export default function Settings() {
                     <p className="text-xs text-slate-300 mt-0.5">Display unobtrusive HUD banner over active desktop workspace</p>
                   </div>
                   <button 
-                    onClick={() => {
-                      const newVal = !isPopupEnabled;
-                      setIsPopupEnabled(newVal);
-                      updateSetting('is_popup_enabled', newVal);
-                    }}
-                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${isPopupEnabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
+                    onClick={() => updateSetting('is_popup_enabled', !settings.is_popup_enabled)}
+                    className={`relative inline-flex h-7 w-12 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-300 ease-in-out focus:outline-none p-0.5 z-10 border ${settings.is_popup_enabled ? 'bg-purple-500 border-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.8)]' : 'bg-black/40 border-white/10 shadow-inner'}`} 
                   >
-                    <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${isPopupEnabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
+                    <span className={`pointer-events-none inline-block h-5 w-5 mt-[1px] transform rounded-full bg-white shadow-md ring-0 transition duration-300 ease-in-out ${settings.is_popup_enabled ? 'translate-x-5' : 'translate-x-1'}`}></span>
                   </button>
                 </div>
 

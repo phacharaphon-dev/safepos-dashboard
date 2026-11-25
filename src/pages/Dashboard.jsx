@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ref, onValue } from 'firebase/database';
 import { rtdb } from '../firebase';
@@ -12,6 +12,13 @@ function formatSeconds(totalSec) {
   const mins = Math.floor((s % 3600) / 60);
   const secs = s % 60;
   return `${hours}h ${mins}m ${secs}s`;
+}
+
+function formatCountdown(totalSec) {
+  const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+  const mins = String(Math.floor(s / 60)).padStart(2, '0');
+  const secs = String(s % 60).padStart(2, '0');
+  return `${mins}:${secs}`;
 }
 
 function getTodayKey() {
@@ -46,9 +53,10 @@ function playAlertSound() {
 export default function Dashboard() {
   const [score, setScore] = useState(100);
   const [showDangerModal, setShowDangerModal] = useState(false);
-  const [hasAlerted, setHasAlerted] = useState(false);
   const [isCooldown, setIsCooldown] = useState(false);
   const [cooldownTimeLeft, setCooldownTimeLeft] = useState(0);
+  const [cooldownUntil, setCooldownUntil] = useState(0);
+  const [alertSignal, setAlertSignal] = useState(0);
 
   const riskThreshold = 30;
 
@@ -61,10 +69,10 @@ export default function Dashboard() {
     total_bad_posture_min: 0,
     alert_count: 0,
   });
-  const [isPopupEnabled, setIsPopupEnabled] = useState(true);
-  const [isSoundEnabled, setIsSoundEnabled] = useState(true);
-  const [timeThresholdSec, setTimeThresholdSec] = useState(10);
-  const [cooldownPeriodMin, setCooldownPeriodMin] = useState(1);
+
+  const isPopupEnabledRef = useRef(true);
+  const isSoundEnabledRef = useRef(true);
+  const lastAlertTsRef = useRef(null);
 
   useEffect(() => {
     const deviceRef = ref(rtdb, `Devices/${DEVICE_ID}`);
@@ -72,10 +80,18 @@ export default function Dashboard() {
       if (snapshot.exists()) {
         const data = snapshot.val();
         setDeviceStatus(data.status || 'Online');
+        setCooldownUntil(Number(data.cooldown_until || 0));
+
+        const incomingAlertTs = Number(data.last_alert_ts || 0);
+        if (lastAlertTsRef.current === null) {
+          lastAlertTsRef.current = incomingAlertTs;
+        } else if (incomingAlertTs > lastAlertTsRef.current) {
+          lastAlertTsRef.current = incomingAlertTs;
+          setAlertSignal(incomingAlertTs);
+        }
 
         const rawStatus = data.current_posture_status || data.current_posture || 'Normal';
         const normalizedStatus = String(rawStatus).trim().toLowerCase();
-
         const realTimeScore = data.live_score;
         let finalScore = 100;
 
@@ -117,10 +133,8 @@ export default function Dashboard() {
     const unsubSettings = onValue(settingsRef, (snapshot) => {
       if (snapshot.exists()) {
         const s = snapshot.val();
-        if (typeof s.is_popup_enabled === 'boolean') setIsPopupEnabled(s.is_popup_enabled);
-        if (typeof s.is_sound_enabled === 'boolean') setIsSoundEnabled(s.is_sound_enabled);
-        if (s.time_threshold_sec !== undefined) setTimeThresholdSec(Number(s.time_threshold_sec));
-        if (s.cooldown_period_min !== undefined) setCooldownPeriodMin(Number(s.cooldown_period_min));
+        if (typeof s.is_popup_enabled === 'boolean') isPopupEnabledRef.current = s.is_popup_enabled;
+        if (typeof s.is_sound_enabled === 'boolean') isSoundEnabledRef.current = s.is_sound_enabled;
       }
     });
 
@@ -132,37 +146,32 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    let graceTimer;
-    if (score <= riskThreshold && !hasAlerted && !isCooldown) {
-      if (isPopupEnabled) {
-        graceTimer = setTimeout(() => {
-          setShowDangerModal(true);
-          setHasAlerted(true);
-          if (isSoundEnabled) {
-            playAlertSound();
-          }
-        }, Math.max(3, timeThresholdSec) * 1000);
-      }
-    } else if (score > riskThreshold) {
-      setHasAlerted(false);
-      setShowDangerModal(false);
-      clearTimeout(graceTimer);
+    if (alertSignal <= 0) return;
+    if (isPopupEnabledRef.current) {
+      setShowDangerModal(true);
     }
-    return () => clearTimeout(graceTimer);
-  }, [score, hasAlerted, isPopupEnabled, isSoundEnabled, isCooldown, timeThresholdSec]);
+    if (isSoundEnabledRef.current) {
+      playAlertSound();
+    }
+  }, [alertSignal]);
 
   useEffect(() => {
-    let countdownInterval;
-    if (isCooldown && cooldownTimeLeft > 0) {
-      countdownInterval = setInterval(() => {
-        setCooldownTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (cooldownTimeLeft === 0) {
-      setIsCooldown(false);
-      clearInterval(countdownInterval);
+    if (postureStateFromDB === 'Normal') {
+      setShowDangerModal(false);
     }
-    return () => clearInterval(countdownInterval);
-  }, [isCooldown, cooldownTimeLeft]);
+  }, [postureStateFromDB]);
+
+  useEffect(() => {
+    const tick = () => {
+      const remain = Math.max(0, Math.ceil((cooldownUntil - Date.now()) / 1000));
+      setCooldownTimeLeft(remain);
+      setIsCooldown(remain > 0);
+    };
+    tick();
+    if (!cooldownUntil) return;
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [cooldownUntil]);
 
   const isNormal = postureStateFromDB === 'Normal';
   const isWarning = postureStateFromDB === 'Warning';
@@ -218,11 +227,7 @@ export default function Dashboard() {
               สถานะท่านั่งของคุณอยู่ในระดับความเสี่ยง (<span className="text-rose-400 font-bold">{score}%</span>) กรุณาปรับท่านั่งให้หลังตรงเพื่อป้องกันออฟฟิศซินโดรมครับ
             </p>
             <button
-              onClick={() => {
-                setShowDangerModal(false);
-                setIsCooldown(true);
-                setCooldownTimeLeft(Math.max(1, cooldownPeriodMin) * 60);
-              }}
+              onClick={() => setShowDangerModal(false)}
               className="mt-6 w-full rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 px-6 py-3 font-bold text-white shadow-[0_0_25px_rgba(244,63,94,0.5)] hover:from-rose-600 hover:to-pink-700 transition active:scale-95"
             >
               ปิดหน้าต่างแจ้งเตือน
@@ -245,7 +250,7 @@ export default function Dashboard() {
           {isCooldown && (
             <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-bold animate-pulse backdrop-blur-md">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-              <span>Alert Snoozed ({cooldownTimeLeft}s)</span>
+              <span>Alert Snoozed ({formatCountdown(cooldownTimeLeft)})</span>
             </div>
           )}
           <button className="relative w-10 h-10 rounded-full bg-black/20 border border-white/10 flex items-center justify-center text-slate-200 hover:text-white hover:bg-white/10 transition backdrop-blur-md">
@@ -328,6 +333,20 @@ export default function Dashboard() {
                     <div className="absolute top-0 right-0 w-7 h-7 border-t-[3px] border-r-[3px] border-white/40 rounded-tr-[16px] z-20" />
                     <div className="absolute bottom-0 left-0 w-7 h-7 border-b-[3px] border-l-[3px] border-white/40 rounded-bl-[16px] z-20" />
                     <div className="absolute bottom-0 right-0 w-7 h-7 border-b-[3px] border-r-[3px] border-white/40 rounded-br-[16px] z-20" />
+
+                    {isCooldown && cooldownTimeLeft > 0 && (
+                      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-2.5 px-4 py-2 rounded-full bg-[#090616]/80 border border-rose-500/60 backdrop-blur-md shadow-[0_0_25px_rgba(244,63,94,0.45)]">
+                        <span className="relative flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+                        </span>
+                        <span className="text-xs font-bold tracking-wider uppercase text-rose-200">COOLDOWN</span>
+                        <span className="text-base font-black font-mono text-white tracking-widest bg-rose-500/25 px-2.5 py-0.5 rounded-lg border border-rose-400/40">
+                          {formatCountdown(cooldownTimeLeft)}
+                        </span>
+                      </div>
+                    )}
+
                     <img
                       src="http://127.0.0.1:5000/video_feed" alt="Live Posture AI Feed"
                       className="absolute inset-0 w-full h-full object-cover z-10 opacity-90"

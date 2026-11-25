@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 @layer utilities {
-  /* ลวดลายจุดตารางด้านหลังแบบ Sci-fi */
+  /* à¸¥à¸§à¸”à¸¥à¸²à¸¢à¸ˆà¸¸à¸”à¸•à¸²à¸£à¸²à¸‡à¸”à¹‰à¸²à¸™à¸«à¸¥à¸±à¸‡à¹à¸šà¸š Sci-fi */
   .dot-matrix { 
     background-image: radial-gradient(rgba(255, 255, 255, 0.16) 1.5px, transparent 1.5px); 
     background-size: 14px 14px; 
